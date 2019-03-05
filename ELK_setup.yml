@@ -1,0 +1,125 @@
+---
+- name: Elasticsearch Server Setup
+  hosts: all
+  become: yes
+  become_user: root
+
+  vars:
+    MY_USERNAME: 'me'
+
+  gather_facts: False
+
+  pre_tasks:  #Necessary for Ubuntu 16.04 and later
+    - name: Install python for Ansible
+      raw: test -e /usr/bin/python || (apt -y update && apt install -y python-minimal)
+      changed_when: False
+    - setup: # rerun gather_facts??
+
+  tasks:
+    - name: Create my user account
+      user: name={{ MY_USERNAME }}
+            password='$6$rounds=656000$J5G0zuQhb4qbtewP$Gn6QejcHh./nfA30XaToIwQkoan584xnSsjcRa03RtdHGTA/q.CTLX3jeA95A.6ed36RJl6AuS6oIjHAUBEgD/'
+            shell=/bin/bash
+
+    - name: Add my authorized key
+      authorized_key: user={{ MY_USERNAME }} key="{{ lookup('file', '/home/arnaud/.ssh/id_rsa.pub') }}"
+
+    - name: Add my account to sudoers
+      lineinfile: dest=/etc/sudoers
+                  regexp="{{ MY_USERNAME }} ALL"
+                  line="{{ MY_USERNAME }} ALL=(ALL) ALL"
+                  state=present
+
+    - name: Disable Password Authentication
+      lineinfile: dest=/etc/ssh/sshd_config
+                  regexp='^PasswordAuthentication'
+                  line="PasswordAuthentication no"
+                  state=present
+      notify: Restart ssh
+
+    - name: Disallow root SSH access
+      lineinfile: dest=/etc/ssh/sshd_config
+                  regexp="^PermitRootLogin"
+                  line="PermitRootLogin no"
+                  state=present
+      notify: Restart ssh
+
+    - name: Copy over APT settings
+      copy: src=apt_periodic_update dest=/etc/apt/apt.conf.d/10periodic
+
+    - name: Add a repository key for Elasticsearch Repo
+      apt_key:
+        url: https://artifacts.elastic.co/GPG-KEY-elasticsearch
+        state: present
+
+    - name: Add Elasticsearch repository
+      apt_repository:
+        repo: deb https://artifacts.elastic.co/packages/6.x/apt stable main
+        state: present
+
+    - name: Update Package Cache
+      apt: update_cache=yes
+
+    - name: Upgrade packages
+      apt: upgrade=safe
+
+    - name: Install support packages
+      apt: name={{ item }} state=present
+      with_items:
+          - ntp
+          - nano
+          - openjdk-8-jre
+          - apt-transport-https
+
+    - name: Install Elasticsearch
+      apt: name=elasticsearch=6.6.1 state=present
+
+    - name: Install Logstash
+      apt: name=logstash=1:6.6.1-1 state=present
+
+    - name: Install Kibana
+      apt: name=kibana=6.6.1 state=present
+
+    - name: Hold the versions for ELK
+      command: apt-mark hold elasticsearch logstash kibana
+
+    - name: Run daemon-reload for ES service
+      command: systemctl daemon-reload
+
+    - name: Set Elasticsearch service to auto-start
+      command: systemctl enable elasticsearch.service
+
+    - name: Set Logstash service to auto-start
+      command: systemctl enable logstash.service
+
+    - name: Set Kibana service to auto-start
+      command: systemctl enable kibana.service
+
+    - name: Copy over elasticsearch.yml
+      copy:
+        src: ./elasticsearch/elasticsearch.yml
+        dest: /etc/elasticsearch/elasticsearch.yml
+        owner: root
+        group: elasticsearch
+        mode: 0660
+
+    - name: Copy over kibana.yml
+      copy:
+        src: ./kibana/kibana.yml
+        dest: /etc/kibana/kibana.yml
+        owner: root
+        group: root
+        mode: 0644
+
+    - name: Start Elasticsearch service
+      command: systemctl start elasticsearch.service
+
+    - name: Start Kibana service
+      command: systemctl start kibana.service
+
+    - debug: var=ansible_all_ipv4_addresses
+
+  handlers:
+  - name: Restart ssh
+    service: name=ssh
+             state=restarted
