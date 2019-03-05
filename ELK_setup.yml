@@ -1,5 +1,5 @@
 ---
-- name: Elasticsearch Server Setup
+- name: ELK Server Setup
   hosts: all
   become: yes
   become_user: root
@@ -22,7 +22,7 @@
             shell=/bin/bash
 
     - name: Add my authorized key
-      authorized_key: user={{ MY_USERNAME }} key="{{ lookup('file', '/home/arnaud/.ssh/id_rsa.pub') }}"
+      authorized_key: user={{ MY_USERNAME }} key="{{ lookup('file', '/home/me/.ssh/id_rsa.pub') }}"
 
     - name: Add my account to sudoers
       lineinfile: dest=/etc/sudoers
